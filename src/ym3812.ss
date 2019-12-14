@@ -74,6 +74,31 @@
                 (else "invalid port letter:" port))))
     ((symbol->bit-setter sym) reg pin)))
 
+(define (io-init io-reg . names)
+  (let* ((snames (map symbol->string names))
+         (bit-locs (map
+                     (lambda (name)
+                       (avr-register-bit-name->bit io-reg name))
+                     snames))
+         (mask
+           (fold
+             (lambda (pos acc)
+               (.i acc (.<< 1 pos)))
+             0
+             bit-locs)))
+    (list (ldi. &r16 mask)
+          (out. (^io io-reg) &r16))))
+
+(define (io-imm io-reg val)
+  (list (ldi. &r16 val)
+        (out. (^io io-reg) &r16)))
+
+(define (nop2)
+  (rjmp. 0))
+
+(define (nop8)
+  (call. 'nop8))
+
 ; stack stuff
 
 (define (>y reg)
@@ -169,10 +194,8 @@
 
     (@ #x34)
     (% 'begin)
-    (ldi. &r16 (hibits (offset-of ram 'end)))
-    (out. (^io &sph) &r16)
-    (ldi. &r16 (lobits (offset-of ram 'end)))
-    (out. (^io &spl) &r16)
+    (io-imm &sph (hibits (offset-of ram 'end)))
+    (io-imm &spl (lobits (offset-of ram 'end)))
 
     (ldi. &Yh (hibits (offset-of ram 'stack-base)))
     (ldi. &Yl (lobits (offset-of ram 'stack-base)))
@@ -224,8 +247,7 @@
       (pin-mode p-mosi 'out)
       (pin-mode p-ss   'out)
 
-      (ldi. &r16 #b01010000)
-      (out. (^io &spcr0) &r16)
+      (io-init &spcr0 'spe0 'mstr0)
 
       (in. &r16 (^io &spsr0))
       (sbr. &r16 (^b &spsr0 'spi2x0))
@@ -265,17 +287,16 @@
     (fn 'ym-init
       (pin-mode p-ym-clk 'out)
 
-      (ldi. &r16 #b00100011)
-      (out. (^io &tccr0a) &r16)
-      (ldi. &r16 #b00001001)
-      (out. (^io &tccr0b) &r16)
+      ; waveform generation mode: fast pwm
+      ; compare mode: non inverting
+      ; clock source: no prescale
+      (io-init &tccr0a 'com0b1 'wgm01 'wgm00)
+      (io-init &tccr0b 'wgm02 'cs00)
 
       ; 50% duty cycle
       ; 16/6 MHz or 2.667
-      (ldi. &r16 5)
-      (out. (^io &ocr0a) &r16)
-      (ldi. &r16 2)
-      (out. (^io &ocr0b) &r16)
+      (io-imm &ocr0a 5)
+      (io-imm &ocr0b 2)
 
       (pin-mode p-ym-reset 'out)
       (pin-mode p-ym-a0 'out)
@@ -297,7 +318,7 @@
       (call. 'sr-shift-out)
       (set-pin p-ym-a0 'low)
       (set-pin p-ym-wr 'low)
-      (rjmp. 0)
+      (nop2)
       (set-pin p-ym-wr 'high)
 
       (y-call 'delay-us 50)
@@ -305,7 +326,7 @@
       (call. 'sr-shift-out)
       (set-pin p-ym-a0 'high)
       (set-pin p-ym-wr 'low)
-      (rjmp. 0)
+      (nop2)
       (set-pin p-ym-wr 'high)
 
       (y-call 'delay-us 50))))
@@ -320,9 +341,9 @@
       (dec. &r16)
 
       (loop
-        (call. 'nop8)
-        (rjmp. 0)
-        (rjmp. 0)
+        (nop8)
+        (nop2)
+        (nop2)
         (dec. &r16)
         (breq. 1)))
 
@@ -344,4 +365,3 @@
           (breq. 1))))
 
     (fn 'nop8)))
-
