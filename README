@@ -1,0 +1,9 @@
+ym3812
+
+Yamaha ym3812 controller
+
+you need:
+  guile
+  uokichi-scm
+
+MIT
